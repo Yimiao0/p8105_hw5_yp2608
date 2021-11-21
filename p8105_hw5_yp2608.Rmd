@@ -1,0 +1,197 @@
+---
+title: "Homework 5"
+author: "Yimiao Pang"
+output: github_document
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(p8105.datasets)
+library(viridis)
+library(patchwork)
+
+knitr::opts_chunk$set(
+  echo = TRUE,
+  warning = FALSE,
+  fig.width = 8,
+  fig.height = 6,
+  out.width = "90%"
+)
+
+options(
+  ggplot2.continuous.colour = "viridis",
+  ggplot2.continuous.fill = "viridis"
+)
+
+scale_colour_discrete = scale_colour_viridis_d
+scale_fill_discrete = scale_fill_viridis_d
+
+theme_set(theme_minimal() + theme(legend.position = "bottom"))
+```
+
+## Problem 1
+
+```{r p1}
+homicide_df = 
+  read_csv("./data/homicide_data.csv", na = c("", "Unknown")) %>% 
+  mutate(
+    city_state = str_c(city, state),
+    resolution = case_when(
+      disposition == "Closed without arrest" ~ "unsolved",
+      disposition == "Open/No arrest"        ~ "unsolved",
+      disposition == "Closed by arrest"      ~ "solved"
+    )) %>% 
+  relocate(city_state) %>% 
+  filter(city_state != "TulsaAL")
+```
+
+Baltimore
+
+```{r p1_Baltimore}
+baltimore_df = 
+  homicide_df %>% 
+  filter(city_state == "BaltimoreMD")
+
+baltimore_summary = 
+  baltimore_df %>% 
+  summarize(
+    unsolved = sum(resolution == "unsolved"),
+    n = n()
+  )
+
+baltimore_test = prop.test(
+  x = baltimore_summary %>% pull(unsolved),
+  n = baltimore_summary %>% pull(n)
+)
+
+baltimore_test %>% 
+  broom::tidy()
+```
+
+```{r}
+prop_test_function = function(city_df) {
+  city_summary = 
+    city_df %>% 
+    summarize(
+      unsolved = sum(resolution == "unsolved"),
+      n = n()
+    )
+  
+  city_test = prop.test(
+    x = city_summary %>% pull(unsolved),
+    n = city_summary %>% pull(n)
+  )
+  
+  return(city_test)
+}
+
+
+prop_test_function(baltimore_df)
+
+homicide_df %>% 
+  filter(city_state == "AlbuquerqueNM") %>% 
+  prop_test_function()
+
+results_df = 
+  homicide_df %>% 
+  nest(data = uid:resolution) %>% 
+  mutate(
+    test_results = map(data, prop_test_function),
+    tidy_results = map(test_results, broom::tidy)
+  ) %>% 
+  select(city_state, tidy_results) %>% 
+  unnest(tidy_results) %>% 
+  select(city_state, estimate, starts_with("conf"))
+
+results_df %>% 
+  mutate(city_state = fct_reorder(city_state, estimate)) %>% #keep it in a right order
+  ggplot(aes(x = city_state, y = estimate)) +
+  geom_point() +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high)) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))
+
+homicide_df %>% 
+  group_by(city_state) %>% 
+  summarize(
+    unsolved = sum(resolution == "unsolved"),
+    n = n()
+  ) %>% 
+  mutate(
+    test_results = map2(unsolved, n, prop.test),
+    tidy_results = map(test_results, broom::tidy)
+  ) %>% 
+  select(city_state, tidy_results) %>% 
+  unnest(tidy_results) %>% 
+  select(city_state, estimate, starts_with("conf"))
+```
+
+
+## Problem 2
+
+```{r p2, message=FALSE}
+all_data_df = 
+  tibble(
+    filename = list.files(path = "./data/p2_data", full.names = TRUE),
+    df = map(.x = filename, ~read_csv(.x))
+  ) %>% 
+  separate(filename, into = c("dot", "dt", "p2", "file_name"), sep = "/") %>% 
+  separate(file_name, into = c("group", "id")) %>% 
+  select(group, id, df) %>% 
+  unnest(df)
+
+all_data_tidy = 
+  all_data_df %>% 
+  pivot_longer(
+    week_1:week_8,
+    names_to = "week",
+    values_to = "data"
+  ) %>% 
+  mutate(
+    week = recode(week, 'week_1' = 1, 'week_2' = 2, 'week_3' = 3, 'week_4' = 4, 'week_5' = 5, 'week_6' = 6, 'week_7' = 7, 'week_8' = 8)
+    )
+
+all_data_tidy
+
+# spaghetti plot
+all_data_tidy %>% 
+  mutate(group_id = str_c(group, id, sep = "_")) %>% 
+  ggplot(aes(x = week, y = data, group = group_id, color = group)) + 
+  geom_line() +
+  geom_point() + 
+  theme_set(theme_minimal() + 
+  theme(legend.position = "bottom")) +
+  labs(title = "Data for subjects in control and experimental groups",
+       y = "value")
+```
+
+As the spaghetti plots show, data for subjects in the experimental group increased in the 8 weeks, while those for subjects in the control group almost kept in the same level over time. Thus, the experimental arm may lead to an increasing values of interest compared to the control arm.
+
+## Problem 3
+
+```{r p3}
+# load data
+set.seed(10)
+
+iris_with_missing = iris %>% 
+  map_df(~replace(.x, sample(1:150, 20), NA)) %>%
+  mutate(Species = as.character(Species)) %>% 
+  janitor::clean_names()
+
+# define a function
+fillin_f = function(vec) {
+  if (is.numeric(vec)) {
+    vec[is.na(vec)] = round(mean(vec, na.rm = TRUE), 1)
+  }
+  
+  if (is.character(vec)) {
+    vec[is.na(vec)] = "virginica"
+  }
+  
+  return(vec)
+}
+
+iris_filled = map_df(iris_with_missing, fillin_f)
+
+iris_filled
+```
+
