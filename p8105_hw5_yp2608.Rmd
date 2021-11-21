@@ -68,7 +68,7 @@ baltimore_test %>%
   broom::tidy()
 ```
 
-```{r}
+```{r p1}
 prop_test_function = function(city_df) {
   city_summary = 
     city_df %>% 
